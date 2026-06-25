@@ -6,7 +6,7 @@ import sys
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, ttk
+from tkinter import filedialog, messagebox, ttk
 
 import numpy as np
 
@@ -22,6 +22,7 @@ class SpectrumAnalyzerApp:
         self.root.configure(bg="#edf2f7")
         self.sample_rate = 16000
         self.samples = demo_audio(sample_rate=self.sample_rate)
+        self.source_name = "演示音频"
         self.frame_size = 1024
         self.hop_size = 512
         self.position = 0
@@ -185,18 +186,37 @@ class SpectrumAnalyzerApp:
         self.wave_canvas.configure(cursor="")
 
     def open_wav(self) -> None:
-        path = filedialog.askopenfilename(filetypes=[("WAV files", "*.wav")])
+        initial_dir = Path("assets") if Path("assets").exists() else Path.cwd()
+        path = filedialog.askopenfilename(
+            parent=self.root,
+            title="选择 WAV 音频文件",
+            initialdir=str(initial_dir),
+            filetypes=[("WAV 音频文件", "*.wav"), ("所有文件", "*.*")],
+        )
         if not path:
+            self.status.set("已取消打开 WAV 文件")
             return
-        self.sample_rate, self.samples = read_wav(path)
+        try:
+            self.sample_rate, self.samples = read_wav(path)
+        except Exception as exc:
+            messagebox.showerror("无法打开 WAV", f"读取文件失败：\n{path}\n\n{exc}", parent=self.root)
+            self.status.set("WAV 文件读取失败")
+            return
+        if self.samples.size == 0:
+            messagebox.showwarning("空音频", f"文件没有可分析的采样数据：\n{path}", parent=self.root)
+            self.status.set("WAV 文件为空")
+            return
+
+        self.source_name = Path(path).name
         self.sample_rate_var.set(str(self.sample_rate))
         self.position = 0
-        self.status.set(f"已打开：{Path(path).name}，采样率 fs = {self.sample_rate} Hz")
+        self.running = False
         self._draw_current_frame()
 
     def load_demo(self) -> None:
         self.sample_rate = int(self.sample_rate_var.get())
         self.samples = demo_audio(sample_rate=self.sample_rate)
+        self.source_name = "演示音频"
         self.position = 0
         output = Path("assets/demo_audio.wav")
         write_wav(output, self.sample_rate, self.samples)
@@ -207,6 +227,7 @@ class SpectrumAnalyzerApp:
         self.running = False
         self.sample_rate = int(self.sample_rate_var.get())
         self.samples = demo_audio(sample_rate=self.sample_rate)
+        self.source_name = "演示音频"
         self.position = 0
         output = Path("assets/demo_audio.wav")
         write_wav(output, self.sample_rate, self.samples)
@@ -270,7 +291,7 @@ class SpectrumAnalyzerApp:
         fft_size = int(self.fft_size_var.get())
         frequency_resolution = self.sample_rate / fft_size
         self.status.set(
-            f"时长 {total_time:.2f}s | 帧 {self.position / self.sample_rate:.3f}-"
+            f"{self.source_name} | 时长 {total_time:.2f}s | 帧 {self.position / self.sample_rate:.3f}-"
             f"{(self.position + self.frame_size) / self.sample_rate:.3f}s | "
             f"帧长 {frame_time:.3f}s / 帧移 {hop_time:.3f}s | "
             f"N={fft_size} / Δf={frequency_resolution:.2f}Hz | 主频：{peak_text}"
